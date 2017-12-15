@@ -32,6 +32,7 @@
 #include <asm/unistd.h>
 
 #include "kill_save_errno.h"
+#include "aux_children.h"
 #include "largefile_wrappers.h"
 #include "mmap_cache.h"
 #include "number_set.h"
@@ -444,8 +445,6 @@ strace_fopen(const char *path)
 	return fp;
 }
 
-static int popen_pid;
-
 #ifndef _PATH_BSHELL
 # define _PATH_BSHELL "/bin/sh"
 #endif
@@ -545,6 +544,19 @@ strace_pipe_exec(const char *command, int *in_fd, int *out_fd)
 	return pid;
 }
 
+enum aux_child_ret
+popen_exit_wait_handler(pid_t pid, int exit_code, void *data)
+{
+	while (waitpid(pid, NULL, 0) < 0 && errno == EINTR)
+		;
+
+	return ACR_REMOVE_ME;
+}
+
+static const struct aux_child_handlers strace_popen_handlers = {
+	.exit_wait_fn = popen_exit_wait_handler,
+};
+
 /*
  * We cannot use standard popen(3) here because we have to distinguish
  * popen child process from other processes we trace, and standard popen(3)
@@ -556,7 +568,8 @@ strace_popen(const char *command)
 	FILE *fp;
 	int fd;
 
-	popen_pid = strace_pipe_exec(command, &fd, NULL);
+	register_aux_child(strace_pipe_exec(command, &fd, NULL),
+			   &strace_popen_handlers, NULL, NULL, NULL);
 
 	fp = fdopen(fd, "w");
 	if (!fp)
@@ -2345,7 +2358,7 @@ next_event(void)
 	 *  19923 +++ exited with 1 +++
 	 * Exiting only when wait() returns ECHILD works better.
 	 */
-	if (popen_pid != 0) {
+	if (have_aux_children()) {
 		/* However, if -o|logger is in use, we can't do that.
 		 * Can work around that by double-forking the logger,
 		 * but that loses the ability to wait for its completion
@@ -2404,6 +2417,7 @@ next_event(void)
 	 */
 	for (;;) {
 		struct tcb_wait_data *wd;
+		enum aux_child_sig sig;
 
 		if (pid < 0) {
 			if (wait_errno == EINTR)
@@ -2423,9 +2437,13 @@ next_event(void)
 		if (!pid)
 			break;
 
-		if (pid == popen_pid) {
-			if (!WIFSTOPPED(status))
-				popen_pid = 0;
+		sig = aux_children_signal(pid, status);
+		if (sig == ACS_CONTINUE) {
+			wd->te = TE_NEXT;
+			break;
+		}
+		if (sig == ACS_TERMINATE) {
+			wd->te = TE_BREAK;
 			break;
 		}
 
@@ -2867,13 +2885,15 @@ terminate(void)
 	fflush(NULL);
 	if (shared_log != stderr)
 		fclose(shared_log);
-	if (popen_pid) {
-		while (waitpid(popen_pid, NULL, 0) < 0 && errno == EINTR)
-			;
-	}
+
+	aux_children_exit_notify(exit_code);
+	while (aux_children_exit_wait(exit_code))
+		;
+
 	if (sig) {
 		exit_code = 0x100 | sig;
 	}
+
 	if (exit_code > 0xff) {
 		/* Avoid potential core file clobbering.  */
 		struct_rlimit rlim = {0, 0};
