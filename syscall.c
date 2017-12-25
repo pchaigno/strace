@@ -492,7 +492,7 @@ tamper_with_syscall_entering(struct tcb *tcp, unsigned int *signo)
 				? (kernel_long_t) shuffle_scno(opts->data.scno)
 				: -1;
 
-			if (!arch_set_scno(tcp, scno)) {
+			if (!set_scno(tcp, scno)) {
 				tcp->flags |= TCB_TAMPERED;
 				if (scno != -1)
 					tcp->flags |= TCB_TAMPERED_NO_FAIL;
@@ -1326,6 +1326,7 @@ get_scno(struct tcb *tcp)
 	return 1;
 }
 
+<<<<<<< HEAD
 static int
 get_syscall_args(struct tcb *tcp)
 {
@@ -1351,6 +1352,12 @@ get_syscall_args(struct tcb *tcp)
 		return 1;
 	}
 	return arch_get_syscall_args(tcp);
+}
+
+int
+set_scno(struct tcb *tcp, kernel_ulong_t scno)
+{
+	return arch_set_scno(tcp, scno);
 }
 
 #ifdef ptrace_getregset_or_getregs
