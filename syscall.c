@@ -433,9 +433,7 @@ print_err_ret(kernel_ulong_t ret, unsigned long u_error)
 		tprintf("= %" PRI_kld " (errno %lu)", ret, u_error);
 }
 
-static long get_regs(struct tcb *);
 static int get_syscall_args(struct tcb *);
-static int get_syscall_result(struct tcb *);
 static void get_error(struct tcb *, bool);
 static void set_error(struct tcb *, unsigned long);
 static void set_success(struct tcb *, kernel_long_t);
@@ -1049,14 +1047,14 @@ ptrace_setregs(pid_t pid)
 static long get_regs_error = -1;
 
 void
-clear_regs(struct tcb *tcp)
+ptrace_clear_regs(struct tcb *tcp)
 {
 	ptrace_sci.op = 0xff;
 	get_regs_error = -1;
 }
 
-static long
-get_regs(struct tcb *const tcp)
+long
+ptrace_get_regs(struct tcb *const tcp)
 {
 #ifdef ptrace_getregset_or_getregs
 
@@ -1270,7 +1268,7 @@ const struct_sysent stub_sysent = {
  *    ("????" etc) and return an appropriate code.
  */
 int
-get_scno(struct tcb *tcp)
+ptrace_get_scno(struct tcb *tcp)
 {
 	tcp->scno = -1;
 	tcp->s_ent = NULL;
@@ -1326,9 +1324,8 @@ get_scno(struct tcb *tcp)
 	return 1;
 }
 
-<<<<<<< HEAD
-static int
-get_syscall_args(struct tcb *tcp)
+int
+ptrace_get_syscall_args(struct tcb *tcp)
 {
 	if (ptrace_syscall_info_is_valid()) {
 		const unsigned int n =
@@ -1355,7 +1352,35 @@ get_syscall_args(struct tcb *tcp)
 }
 
 int
-set_scno(struct tcb *tcp, kernel_ulong_t scno)
+ptrace_set_error(struct tcb *tcp, unsigned long new_error)
+{
+	const unsigned long old_error = tcp->u_error;
+
+	if (new_error == old_error || new_error > MAX_ERRNO_VALUE)
+		return;
+
+#ifdef ptrace_setregset_or_setregs
+	/* if we are going to invoke set_regs, call get_regs first */
+	if (get_regs(tcp) < 0)
+		return;
+#endif
+
+	tcp->u_error = new_error;
+	if (arch_set_error(tcp)) {
+		tcp->u_error = old_error;
+		/* arch_set_error does not update u_rval */
+	} else {
+		if (ptrace_syscall_info_is_valid())
+			tcp->u_rval = -1;
+		else
+			get_error(tcp, !(tcp_sysent(tcp)->sys_flags &
+					 SYSCALL_NEVER_FAILS));
+	}
+}
+
+
+int
+ptrace_set_scno(struct tcb *tcp, kernel_ulong_t scno)
 {
 	return arch_set_scno(tcp, scno);
 }
@@ -1371,8 +1396,8 @@ static int get_syscall_result_regs(struct tcb *);
  * -1: error, syscall_exiting_trace() should print error indicator
  *    ("????" etc) and bail out.
  */
-static int
-get_syscall_result(struct tcb *tcp)
+int
+ptrace_get_syscall_result(struct tcb *tcp)
 {
 	if (get_syscall_result_regs(tcp) < 0)
 		return -1;
