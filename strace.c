@@ -30,6 +30,7 @@
 #endif
 
 #include "kill_save_errno.h"
+#include "filter_seccomp.h"
 #include "largefile_wrappers.h"
 #include "mmap_cache.h"
 #include "number_set.h"
@@ -236,7 +237,7 @@ usage(void)
 #endif
 
 	printf("\
-usage: strace [-ACdffhi" K_OPT "qqrtttTvVwxxyyzZ] [-I n] [-b execve] [-e expr]...\n\
+usage: strace [-ACdffhi" K_OPT "nqqrtttTvVwxxyyzZ] [-I n] [-b execve] [-e expr]...\n\
               [-a column] [-o file] [-s strsize] [-X format] [-P path]...\n\
               [-p pid]...\n\
 	      { -p pid | [-D] [-E var=val]... [-u username] PROG [ARGS] }\n\
@@ -308,6 +309,7 @@ Startup:\n\
 \n\
 Miscellaneous:\n\
   -d             enable debug output to stderr\n\
+  -n             enable seccomp-bpf filtering\n\
   -h             print help message\n\
   -V             print version\n\
 "
@@ -1231,6 +1233,10 @@ exec_or_die(void)
 	if (params_for_tracee.child_sa.sa_handler != SIG_DFL)
 		sigaction(SIGCHLD, &params_for_tracee.child_sa, NULL);
 
+	debug_msg("seccomp filter %s",
+		  seccomp_filtering ? "enabled" : "disabled");
+	if (seccomp_filtering)
+		init_seccomp_filter();
 	execv(params->pathname, params->argv);
 	perror_msg_and_die("exec");
 }
@@ -1469,6 +1475,10 @@ startup_child(char **argv)
 		 * to create a genuine separate stack and execute on it.
 		 */
 	}
+
+	if (seccomp_filtering)
+		tcp->flags |= TCB_SECCOMP_FILTER;
+
 	/*
 	 * A case where straced process is part of a pipe:
 	 * { sleep 1; yes | head -n99999; } | strace -o/dev/null sh -c 'exec <&-; sleep 9'
@@ -1606,7 +1616,7 @@ init(int argc, char *argv[])
 #ifdef ENABLE_STACKTRACE
 	    "k"
 #endif
-	    "a:Ab:cCdDe:E:fFhiI:o:O:p:P:qrs:S:tTu:vVwxX:yzZ")) != EOF) {
+	    "a:Ab:cCdDe:E:fFhiI:no:O:p:P:qrs:S:tTu:vVwxX:yzZ")) != EOF) {
 		switch (c) {
 		case 'a':
 			acolumn = string_to_uint(optarg);
@@ -1706,6 +1716,9 @@ init(int argc, char *argv[])
 		case 'u':
 			username = optarg;
 			break;
+		case 'n':
+			seccomp_filtering = true;
+			break;
 		case 'v':
 			qualify("abbrev=none");
 			break;
@@ -1757,6 +1770,15 @@ init(int argc, char *argv[])
 
 	if (!argc && daemonized_tracer) {
 		error_msg_and_help("PROG [ARGS] must be specified with -D");
+	}
+
+	if (seccomp_filtering) {
+		if (nprocs && (!argc || debug_flag))
+			error_msg("-n is not enabled for processes attached with -p");
+		if (!followfork) {
+			error_msg("-n implies -f");
+			followfork = 1;
+		}
 	}
 
 	if (optF) {
@@ -1834,6 +1856,12 @@ init(int argc, char *argv[])
 		ptrace_setoptions |= PTRACE_O_TRACECLONE |
 				     PTRACE_O_TRACEFORK |
 				     PTRACE_O_TRACEVFORK;
+
+	if (seccomp_filtering)
+		check_seccomp_filter();
+	if (seccomp_filtering)
+		ptrace_setoptions |= PTRACE_O_TRACESECCOMP;
+
 	debug_msg("ptrace_setoptions = %#x", ptrace_setoptions);
 	test_ptrace_seize();
 	test_ptrace_get_syscall_info();
@@ -2021,6 +2049,7 @@ print_debug_info(const int pid, int status)
 			[PTRACE_EVENT_VFORK_DONE] = "VFORK_DONE",
 			[PTRACE_EVENT_EXEC]  = "EXEC",
 			[PTRACE_EVENT_EXIT]  = "EXIT",
+			[PTRACE_EVENT_SECCOMP]  = "SECCOMP",
 			/* [PTRACE_EVENT_STOP (=128)] would make biggish array */
 		};
 		const char *e = "??";
@@ -2546,6 +2575,9 @@ next_event(void)
 			case PTRACE_EVENT_EXIT:
 				wd->te = TE_STOP_BEFORE_EXIT;
 				break;
+			case PTRACE_EVENT_SECCOMP:
+				wd->te = TE_SECCOMP;
+				break;
 			default:
 				wd->te = TE_RESTART;
 			}
@@ -2631,7 +2663,7 @@ trace_syscall(struct tcb *tcp, unsigned int *sig)
 static bool
 dispatch_event(const struct tcb_wait_data *wd)
 {
-	unsigned int restart_op = PTRACE_SYSCALL;
+	unsigned int restart_op;
 	unsigned int restart_sig = 0;
 	enum trace_event te = wd ? wd->te : TE_BREAK;
 	/*
@@ -2639,6 +2671,11 @@ dispatch_event(const struct tcb_wait_data *wd)
 	 * around union wait fixed by glibc commit glibc-2.24~391
 	 */
 	int status = wd ? wd->status : 0;
+
+	if (current_tcp && has_seccomp_filter(current_tcp))
+		restart_op = seccomp_filter_restart_operator(current_tcp);
+	else
+		restart_op = PTRACE_SYSCALL;
 
 	switch (te) {
 	case TE_BREAK:
@@ -2649,6 +2686,27 @@ dispatch_event(const struct tcb_wait_data *wd)
 
 	case TE_RESTART:
 		break;
+
+	case TE_SECCOMP:
+		if (!has_seccomp_filter(current_tcp)) {
+			/*
+			 * We don't know if forks/clones have a seccomp filter
+			 * when they are created, but we can detect it when we
+			 * have a seccomp-stop.
+			 * In such a case, if !seccomp_before_sysentry, we have
+			 * already processed the syscall entry, so we avoid
+			 * processing it a second time.
+			 */
+			current_tcp->flags |= TCB_SECCOMP_FILTER;
+			restart_op = PTRACE_SYSCALL;
+			break;
+		}
+
+		if (seccomp_before_sysentry) {
+			restart_op = PTRACE_SYSCALL;
+			break;
+		}
+		ATTRIBUTE_FALLTHROUGH;
 
 	case TE_SYSCALL_STOP:
 		if (trace_syscall(current_tcp, &restart_sig) < 0) {
@@ -2664,6 +2722,42 @@ dispatch_event(const struct tcb_wait_data *wd)
 			 * normally, via WIFEXITED or WIFSIGNALED wait status.
 			 */
 			return true;
+		}
+		if (has_seccomp_filter(current_tcp)) {
+			/*
+			 * Syscall and seccomp stops can happen in different
+			 * orders depending on kernel.  strace tests this in
+			 * check_seccomp_order_tracer().
+			 *
+			 * Linux 3.5--4.7:
+			 * (seccomp-stop before syscall-entry-stop)
+			 *         +--> seccomp-stop ->-PTRACE_SYSCALL->-+
+			 *         |                                     |
+			 *     PTRACE_CONT                   syscall-entry-stop
+			 *         |                                     |
+			 * syscall-exit-stop <---PTRACE_SYSCALL-----<----+
+			 *
+			 * Linux 4.8+:
+			 * (seccomp-stop after syscall-entry-stop)
+			 *                 syscall-entry-stop
+			 *
+			 *         +---->-----PTRACE_CONT---->----+
+			 *         |                              |
+			 *  syscall-exit-stop               seccomp-stop
+			 *         |                              |
+			 *         +----<----PTRACE_SYSCALL---<---+
+			 *
+			 * Note in Linux 4.8+, we restart in PTRACE_CONT
+			 * after syscall-exit to skip the syscall-entry-stop.
+			 * The next seccomp-stop will be treated as a syscall
+			 * entry.
+			 *
+			 * The line below implements this behavior.
+			 * Note that exiting(current_tcp) actually marks
+			 * a syscall-entry-stop because the flag was inverted
+			 * in the above call to trace_syscall.
+			 */
+			restart_op = exiting(current_tcp) ? PTRACE_SYSCALL : PTRACE_CONT;
 		}
 		break;
 
