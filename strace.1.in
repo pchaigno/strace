@@ -38,8 +38,8 @@
 strace \- trace system calls and signals
 .SH SYNOPSIS
 .SY strace
-.if '@ENABLE_STACKTRACE_FALSE@'#' .OP \-ACdffhikqqrtttTvVwxxyyzZ
-.if '@ENABLE_STACKTRACE_TRUE@'#' .OP \-ACdffhiqqrtttTvVwxxyyzZ
+.if '@ENABLE_STACKTRACE_FALSE@'#' .OP \-ACdffhiknqqrtttTvVwxxyyzZ
+.if '@ENABLE_STACKTRACE_TRUE@'#' .OP \-ACdffhinqqrtttTvVwxxyyzZ
 .OP \-I n
 .OP \-b execve
 .OM \-e expr
@@ -969,6 +969,19 @@ option set to
 Show some debugging output of
 .B strace
 itself on the standard error.
+.TP
+.B \-n
+Enable (experimental) usage of seccomp-bpf to have ptrace(2)-stops only when
+system calls that are being traced occur in the traced processes.  Requires the
+.B \-f
+option.
+An attempt to rely on seccomp-bpf to filter system calls may fail for diverse
+reasons: there are too many system calls to filter, the seccomp API is
+unavailable, or
+.B strace
+itself is being traced.  In cases when seccomp-bpf filter setup failed,
+.B strace
+proceeds as usual and stops traced processes on every system call.
 .TP
 .B \-F
 This option is deprecated.  It is retained for backward compatibility only
