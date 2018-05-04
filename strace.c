@@ -31,6 +31,7 @@
 #include <asm/unistd.h>
 
 #include "kill_save_errno.h"
+#include "filter_seccomp.h"
 #include "largefile_wrappers.h"
 #include "mmap_cache.h"
 #include "number_set.h"
@@ -295,6 +296,8 @@ Startup:\n\
 \n\
 Miscellaneous:\n\
   -d             enable debug output to stderr\n\
+  -n enable      enable seccomp filtering\n\
+     disable     disable seccomp filtering\n\
   -v             verbose mode: print unabbreviated argv, stat, termios, etc. args\n\
   -h             print help message\n\
   -V             print version\n\
@@ -1205,6 +1208,8 @@ exec_or_die(void)
 	if (params_for_tracee.child_sa.sa_handler != SIG_DFL)
 		sigaction(SIGCHLD, &params_for_tracee.child_sa, NULL);
 
+	if (enable_seccomp_filter)
+		init_seccomp_filter();
 	execv(params->pathname, params->argv);
 	perror_msg_and_die("exec");
 }
@@ -1579,7 +1584,7 @@ init(int argc, char *argv[])
 #ifdef ENABLE_STACKTRACE
 	    "k"
 #endif
-	    "a:Ab:cCdDe:E:fFhiI:o:O:p:P:qrs:S:tTu:vVwxX:yz")) != EOF) {
+	    "a:Ab:cCdDe:E:fFhiI:no:O:p:P:qrs:S:tTu:vVwxX:yz")) != EOF) {
 		switch (c) {
 		case 'a':
 			acolumn = string_to_uint(optarg);
@@ -1680,6 +1685,9 @@ init(int argc, char *argv[])
 			break;
 		case 'u':
 			username = optarg;
+			break;
+		case 'n':
+			enable_seccomp_filter = true;
 			break;
 		case 'v':
 			qualify("abbrev=none");
@@ -1789,7 +1797,12 @@ init(int argc, char *argv[])
 		run_gid = getgid();
 	}
 
-	if (followfork)
+	if (enable_seccomp_filter) {
+		check_seccomp_filter();
+		ptrace_setoptions |= PTRACE_O_TRACESECCOMP;
+	}
+
+	if (followfork || enable_seccomp_filter)
 		ptrace_setoptions |= PTRACE_O_TRACECLONE |
 				     PTRACE_O_TRACEFORK |
 				     PTRACE_O_TRACEVFORK;
@@ -2351,6 +2364,11 @@ next_event(void)
 			break;
 		}
 
+		if (!followfork && enable_seccomp_filter && pid != strace_child) {
+			ptrace(PTRACE_CONT, pid, 0, WSTOPSIG(status));
+			break;
+		}
+
 		if (debug_flag)
 			print_debug_info(pid, status);
 
@@ -2545,14 +2563,18 @@ trace_syscall(struct tcb *tcp, unsigned int *sig)
 static bool
 dispatch_event(const struct tcb_wait_data *wd)
 {
-	unsigned int restart_op = PTRACE_SYSCALL;
-	unsigned int restart_sig = 0;
+	unsigned int restart_sig = 0, restart_op;
 	enum trace_event te = wd ? wd->te : TE_BREAK;
 	/*
 	 * Copy wd->status to a non-const variable to workaround glibc bugs
 	 * around union wait fixed by glibc commit glibc-2.24~391
 	 */
 	int status = wd ? wd->status : 0;
+
+	if (enable_seccomp_filter)
+		restart_op = seccomp_filter_restart_operator(current_tcp);
+	else
+		restart_op = PTRACE_SYSCALL;
 
 	switch (te) {
 	case TE_BREAK:
@@ -2565,7 +2587,11 @@ dispatch_event(const struct tcb_wait_data *wd)
 		break;
 
 	case TE_SECCOMP:
-		break;
+		if (seccomp_before_ptrace) {
+			restart_op = PTRACE_SYSCALL;
+			break;
+		}
+		ATTRIBUTE_FALLTHROUGH;
 
 	case TE_SYSCALL_STOP:
 		if (trace_syscall(current_tcp, &restart_sig) < 0) {
@@ -2582,6 +2608,9 @@ dispatch_event(const struct tcb_wait_data *wd)
 			 */
 			return true;
 		}
+		if (enable_seccomp_filter)
+			restart_op = (current_tcp->flags & TCB_INSYSCALL)
+				     ? PTRACE_SYSCALL : PTRACE_CONT;
 		break;
 
 	case TE_SIGNAL_DELIVERY_STOP:
