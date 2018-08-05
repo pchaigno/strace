@@ -2738,7 +2738,7 @@ handle_exec(struct tcb **current_tcp, unsigned int *restart_sig, void *data)
 
 		if (ret < 0) {
 			/* The reason is described in TE_SYSCALL_STOP */
-			return true;
+			return;
 		}
 	}
 
