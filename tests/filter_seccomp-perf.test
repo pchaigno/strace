@@ -1,0 +1,26 @@
+#!/bin/sh
+#
+# Check seccomp filter performance.  Low performance with seccomp filter
+# enabled likely means it is not working as expected.
+#
+# Copyright (c) 2019 Paul Chaignon <paul.chaignon@gmail.com>
+# All rights reserved.
+#
+# SPDX-License-Identifier: GPL-2.0-or-later
+
+. "${srcdir=.}/init.sh"
+. "${srcdir=.}/filter_seccomp.sh"
+
+num_regular="$(run_strace    -f -qq -e signal=none -e trace=fchdir ../$NAME)"
+mv "$LOG" "$LOG.regular"
+num_seccomp="$(run_strace -n -f -qq -e signal=none -e trace=fchdir ../$NAME)"
+mv "$LOG" "$LOG.seccomp"
+match_diff "$LOG.regular" "$LOG.seccomp"
+
+min_ratio=8
+# With seccomp-filter enabled, we should be able to complete
+# at least $min_ratio times more chdir system calls.
+ratio="$((num_seccomp / num_regular))"
+if [ "$ratio" -lt "$min_ratio" ]; then
+	fail_ "Only $ratio times more syscalls performed with seccomp-filter enabled"
+fi
