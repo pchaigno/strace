@@ -36,7 +36,7 @@ extern bool ptrace_init(int argc, char *argv[]);
 extern void ptrace_startup_child(char **argv);
 extern void ptrace_attach_tcb(struct tcb *const tcp);
 extern void ptrace_detach(struct tcb *tcp);
-extern void ptrace_cleanup(void);
+extern void ptrace_cleanup(int sig);
 
 extern void *ptrace_alloc_trace_loop_storage(void);
 extern enum trace_event ptrace_next_event(int *pstatus, void *data);
