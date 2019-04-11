@@ -1397,8 +1397,8 @@ get_error(struct tcb *tcp, const bool check_errno)
 	}
 }
 
-static void
-set_error(struct tcb *tcp, unsigned long new_error)
+void
+ptrace_set_error(struct tcb *tcp, unsigned long new_error)
 {
 	const unsigned long old_error = tcp->u_error;
 
@@ -1424,8 +1424,8 @@ set_error(struct tcb *tcp, unsigned long new_error)
 	}
 }
 
-static void
-set_success(struct tcb *tcp, kernel_long_t new_rval)
+void
+ptrace_set_success(struct tcb *tcp, kernel_long_t new_rval)
 {
 	const kernel_long_t old_rval = tcp->u_rval;
 
