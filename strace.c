@@ -2719,7 +2719,7 @@ ptrace_handle_exec(struct tcb **current_tcp, unsigned int *restart_sig,
 		   void *data)
 {
 	/* The syscall succeeded, clear the flag. */
-	current_tcp->flags &= ~TCB_CHECK_EXEC_SYSCALL;
+	(*current_tcp)->flags &= ~TCB_CHECK_EXEC_SYSCALL;
 	/*
 	 * Check that we are inside syscall now (next event after
 	 * PTRACE_EVENT_EXEC should be for syscall exiting).  If it is
