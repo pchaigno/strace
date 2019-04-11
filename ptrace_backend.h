@@ -39,7 +39,7 @@ extern void ptrace_detach(struct tcb *tcp);
 extern void ptrace_cleanup(int sig);
 
 extern void *ptrace_alloc_trace_loop_storage(void);
-extern enum trace_event ptrace_next_event(int *pstatus, void *data);
+extern const struct tcb_wait_data *ptrace_next_event(void);
 extern void ptrace_handle_group_stop(unsigned int *restart_sig, void *data);
 extern void ptrace_handle_exec(struct tcb **current_tcp,
 			       unsigned int *restart_sig, void *data);
