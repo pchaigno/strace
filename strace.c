@@ -2815,10 +2815,10 @@ dispatch_event(const struct tcb_wait_data *wd)
 		break;
 
 	case TE_SIGNAL_DELIVERY_STOP: {
-		siginfo_t *si = (siginfo_t *) get_siginfo(data);
+		siginfo_t *si = (siginfo_t *) get_siginfo(wd->data);
 
 		restart_sig = WSTOPSIG(status);
-		print_stopped(current_tcp, &wd->si, restart_sig);
+		print_stopped(current_tcp, si, restart_sig);
 		break;
 	}
 
@@ -2831,7 +2831,7 @@ dispatch_event(const struct tcb_wait_data *wd)
 		restart_sig = WSTOPSIG(status);
 		print_stopped(current_tcp, NULL, restart_sig);
 
-		handle_group_stop(&restart_sig, data);
+		handle_group_stop(&restart_sig, wd->data);
 
 		break;
 
@@ -2841,7 +2841,7 @@ dispatch_event(const struct tcb_wait_data *wd)
 		return true;
 
 	case TE_STOP_BEFORE_EXECVE:
-		handle_exec(&current_tcp, &restart_sig, data);
+		handle_exec(&current_tcp, &restart_sig, wd->data);
 
 		if (detach_on_execve) {
 			if (current_tcp->flags & TCB_SKIP_DETACH_ON_FIRST_EXEC) {
@@ -2873,7 +2873,7 @@ dispatch_event(const struct tcb_wait_data *wd)
 		return true;
 	}
 
-	if (!restart_process(current_tcp, restart_sig, data)) {
+	if (!restart_process(current_tcp, restart_sig, wd->data)) {
 		exit_code = 1;
 		return false;
 	}
