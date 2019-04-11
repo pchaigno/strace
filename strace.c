@@ -2564,8 +2564,9 @@ ptrace_next_event(void)
 					 * errno == EINVAL too?
 					 * We can get ESRCH instead, you know...
 					 */
+					siginfo_t *si = (siginfo_t *) get_siginfo(wd->data);
 					bool stopped = ptrace(PTRACE_GETSIGINFO,
-						pid, 0, &wd->si) < 0;
+						pid, 0, si) < 0;
 
 					wd->te = stopped ? TE_GROUP_STOP
 							 : TE_SIGNAL_DELIVERY_STOP;
