@@ -2384,7 +2384,7 @@ ptrace_next_event(void)
 	struct tcb *tcp = NULL;
 	struct list_item *elem;
 
-	static EMPTY_LIST(pending_tcps);
+	static struct list_item pending_tcps = EMPTY_LIST(&pending_tcps);
 	/* Handle the queued tcbs before waiting for new events.  */
 	if (!list_is_empty(&pending_tcps))
 		goto next_event_get_tcp;
