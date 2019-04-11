@@ -2373,11 +2373,6 @@ ptrace_alloc_trace_loop_storage(void)
 const struct tcb_wait_data *
 ptrace_next_event(void)
 {
-	struct ptrace_trace_loop_data *trace_loop_data = data;
-	siginfo_t *si = &trace_loop_data->si;
-
-	trace_loop_data->restart_op = PTRACE_SYSCALL;
-
 	if (interrupted)
 		return NULL;
 
