@@ -2467,6 +2467,7 @@ ptrace_next_event(void)
 	for (;;) {
 		struct tcb_wait_data *wd;
 		enum aux_child_sig sig;
+		enum trace_event te = TE_BREAK;
 
 		if (pid < 0) {
 			if (wait_errno == EINTR)
@@ -2488,11 +2489,11 @@ ptrace_next_event(void)
 
 		sig = aux_children_signal(pid, status);
 		if (sig == ACS_CONTINUE) {
-			wd->te = TE_NEXT;
+			te = TE_NEXT;
 			break;
 		}
 		if (sig == ACS_TERMINATE) {
-			wd->te = TE_BREAK;
+			te = TE_BREAK;
 			break;
 		}
 
@@ -2523,6 +2524,7 @@ ptrace_next_event(void)
 		wd = tcb_wait_tab + wait_tab_pos;
 		init_trace_wait_data(wd);
 		wd->status = status;
+		wd->te = te;
 
 		if (WIFSIGNALED(status)) {
 			wd->te = TE_SIGNALLED;
