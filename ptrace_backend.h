@@ -51,8 +51,8 @@ extern void ptrace_clear_regs(struct tcb *tcp);
 extern long ptrace_get_regs(struct tcb * const tcp);
 extern int ptrace_get_scno(struct tcb *tcp);
 extern int ptrace_set_scno(struct tcb *tcp, kernel_ulong_t scno);
-extern int ptrace_set_error(struct tcb *tcp);
-extern int ptrace_set_success(struct tcb *tcp);
+extern int ptrace_set_error(struct tcb *tcp, unsigned long new_error);
+extern int ptrace_set_success(struct tcb *tcp, kernel_long_t new_rval);
 extern int ptrace_get_syscall_result(struct tcb *tcp);
 
 extern int ptrace_umoven(struct tcb *const tcp, kernel_ulong_t addr,
