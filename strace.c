@@ -164,8 +164,6 @@ char *program_invocation_name;
 
 unsigned os_release; /* generated from uname()'s u.release */
 
-static void detach(struct tcb *tcp);
-static void cleanup(int sig);
 static void interrupt(int sig);
 
 #ifdef HAVE_SIG_ATOMIC_T
