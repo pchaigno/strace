@@ -107,16 +107,40 @@ list_remove(struct list_item *item)
 	item->next = item->prev = NULL;
 }
 
-static inline void
+/**
+ * Remove the last element of a list.
+ *
+ * @param head Pointer to the list's head.
+ * @return     Pointer to struct list_item removed from the list;
+ *             or NULL, if the list is empty.
+ */
+static inline struct list_item *
 list_remove_tail(struct list_item *head)
 {
-	list_remove(head->prev);
+	struct list_item *t = list_is_empty(head) ? NULL : head->prev;
+
+	if (t)
+		list_remove(t);
+
+	return t;
 }
 
-static inline void
+/**
+ * Remove the first element of a list.
+ *
+ * @param head Pointer to the list's head.
+ * @return     Pointer to struct list_item removed from the list;
+ *             or NULL, if the list is empty.
+ */
+static inline struct list_item *
 list_remove_head(struct list_item *head)
 {
-	list_remove(head->next);
+	struct list_item *h = list_is_empty(head) ? NULL : head->next;
+
+	if (h)
+		list_remove(h);
+
+	return h;
 }
 
 static inline void
