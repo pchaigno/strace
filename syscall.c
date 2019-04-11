@@ -435,8 +435,6 @@ print_err_ret(kernel_ulong_t ret, unsigned long u_error)
 
 static int get_syscall_args(struct tcb *);
 static void get_error(struct tcb *, bool);
-static void set_error(struct tcb *, unsigned long);
-static void set_success(struct tcb *, kernel_long_t);
 static int arch_get_scno(struct tcb *);
 static int arch_check_scno(struct tcb *);
 static int arch_set_scno(struct tcb *, kernel_ulong_t);
