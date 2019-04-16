@@ -433,7 +433,6 @@ print_err_ret(kernel_ulong_t ret, unsigned long u_error)
 		tprintf("= %" PRI_kld " (errno %lu)", ret, u_error);
 }
 
-static int get_syscall_args(struct tcb *);
 static void get_error(struct tcb *, bool);
 static int arch_get_scno(struct tcb *);
 static int arch_check_scno(struct tcb *);

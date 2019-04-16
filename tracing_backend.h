@@ -415,6 +415,7 @@ tracee_recvmsg(struct tcb *tcp, int fd, struct msghdr *msg, int flags)
 # define set_scno                    ptrace_set_scno
 # define set_error                   ptrace_set_error
 # define set_success                 ptrace_set_success
+# define get_syscall_args            ptrace_get_syscall_args
 # define get_syscall_result          ptrace_get_syscall_result
 # define umoven                      ptrace_umoven
 # define umovestr                    ptrace_umovestr

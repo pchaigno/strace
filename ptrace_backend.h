@@ -50,6 +50,7 @@ extern bool ptrace_restart_process(struct tcb *current_tcp,
 extern void ptrace_clear_regs(struct tcb *tcp);
 extern long ptrace_get_regs(struct tcb * const tcp);
 extern int ptrace_get_scno(struct tcb *tcp);
+extern int ptrace_get_syscall_args(struct tcb *tcp);
 extern int ptrace_set_scno(struct tcb *tcp, kernel_ulong_t scno);
 extern void ptrace_set_error(struct tcb *tcp, unsigned long new_error);
 extern void ptrace_set_success(struct tcb *tcp, kernel_long_t new_rval);
