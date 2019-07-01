@@ -330,6 +330,15 @@ check_seccomp_filter(void)
 		goto end;
 	}
 
+	/* Let's avoid enabling seccomp if all syscalls are traced. */
+	seccomp_filtering = !is_complete_set_array(trace_set, nsyscall_vec,
+						   SUPPORTED_PERSONALITIES);
+	if (!seccomp_filtering) {
+		error_msg("filter seccomp is requested but there is nothing "
+			  "to filter");
+		return;
+	}
+
 	int rc = prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, NULL, 0, 0);
 	seccomp_filtering = rc < 0 && errno != EINVAL;
 	if (!seccomp_filtering)
