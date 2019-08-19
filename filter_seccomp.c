@@ -77,8 +77,11 @@ typedef unsigned short (*filter_generator_t)(struct sock_filter *,
 					     bool *overflow);
 static unsigned short linear_filter_generator(struct sock_filter *,
 					      bool *overflow);
+static unsigned short reverse_linear_filter_generator(struct sock_filter *,
+						      bool *overflow);
 static filter_generator_t filter_generators[] = {
 	linear_filter_generator,
+	reverse_linear_filter_generator,
 };
 
 /*
@@ -325,7 +328,8 @@ bpf_syscalls_cmp(struct sock_filter *filter,
 }
 
 static unsigned short
-linear_filter_generator(struct sock_filter *filter, bool *overflow)
+linear_filter_generator_ex(struct sock_filter *filter, bool *overflow,
+			   bool match_traced)
 {
 	/*
 	 * Generated program looks like:
@@ -386,7 +390,7 @@ linear_filter_generator(struct sock_filter *filter, bool *overflow)
 # endif
 
 		for (unsigned int i = 0; i < nsyscall_vec[p]; ++i) {
-			if (traced_by_seccomp(i, p)) {
+			if (traced_by_seccomp(i, p) == match_traced) {
 				if (lower == UINT_MAX)
 					lower = i;
 				continue;
@@ -435,11 +439,12 @@ linear_filter_generator(struct sock_filter *filter, bool *overflow)
 			if (BPF_CLASS(filter[i].code) != BPF_JMP)
 				continue;
 			unsigned char jmp_next = pos - i - 1;
-			unsigned char jmp_trace = pos - i - 2;
+			unsigned char jmp_match = match_traced ?
+						  pos - i - 2 : pos - i - 3;
 			replace_jmp_placeholders(&filter[i].jt, jmp_next,
-						 jmp_trace);
+						 jmp_match);
 			replace_jmp_placeholders(&filter[i].jf, jmp_next,
-						 jmp_trace);
+						 jmp_match);
 			if (BPF_OP(filter[i].code) == BPF_JA)
 				filter[i].k = (unsigned int) jmp_next;
 		}
@@ -451,6 +456,18 @@ linear_filter_generator(struct sock_filter *filter, bool *overflow)
 # endif
 
 	return pos;
+}
+
+static unsigned short
+linear_filter_generator(struct sock_filter *filter, bool *overflow)
+{
+	return linear_filter_generator_ex(filter, overflow, true);
+}
+
+static unsigned short
+reverse_linear_filter_generator(struct sock_filter *filter, bool *overflow)
+{
+	return linear_filter_generator_ex(filter, overflow, false);
 }
 
 static void
