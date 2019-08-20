@@ -479,30 +479,91 @@ reverse_linear_filter_generator(struct sock_filter *filter, bool *overflow)
 
 static unsigned short
 bpf_syscalls_match(struct sock_filter *filter, unsigned int bitarray,
-		   unsigned int bitarray_idx)
+		   unsigned int bitarray_idx, unsigned int *lower_idx,
+		   unsigned char *previous_ret, bool end)
 {
-	if (!bitarray) {
-		/* return RET_ALLOW; */
-		SET_BPF_JUMP(filter, BPF_JMP | BPF_JEQ | BPF_K, bitarray_idx,
-			     JMP_PLACEHOLDER_ALLOW, 0);
-		return 1;
-	}
-	if (bitarray == UINT_MAX) {
-		/* return RET_TRACE; */
-		SET_BPF_JUMP(filter, BPF_JMP | BPF_JEQ | BPF_K, bitarray_idx,
-			     JMP_PLACEHOLDER_TRACE, 0);
-		return 1;
-	}
+	unsigned short nb_insns = 0;
+	unsigned char ret = 0;
+	if (!bitarray || bitarray == UINT_MAX)
+		ret = bitarray ? JMP_PLACEHOLDER_TRACE : JMP_PLACEHOLDER_ALLOW;
+
 	/*
-	 * if (A == nr / 32)
+	 * As a first optimization, we can replace bitwise AND on all-1 and
+	 * all-0 bitarrays with direct jumps such that:
+	 *   if (A == bitarray_idx) return ret;
+	 *
+	 * We can do better though and replace contiguous sequences of such
+	 * direct jumps with inequalities, such that:
+	 *   if (A >= *lower_idx && A < bitarray_idx) return *previous_ret;
+	 * where *lower_idx is the first arraybit_idx compared to in the
+	 * sequence, bitarray_idx is the one after the last in the sequence,
+	 * and *previous_ret is the destination of the jumps from that
+	 * sequence.
+	 */
+
+	if (!end && (!bitarray || bitarray == UINT_MAX)
+	    && *previous_ret == ret)
+		/* We're in the middle of a sequence. */
+		return 0;
+
+	/* Check if previous syscalls_match was the last of a sequence. */
+	if (end || *previous_ret != ret) {
+		/*
+		 * If the last direct jump in the sequence is also the last
+		 * bitarray, we want to include it in the inequality.
+		 */
+		if (end && *previous_ret == ret)
+			bitarray_idx++;
+
+		if (*previous_ret && *lower_idx + 1 == bitarray_idx) {
+			/* if (A == *lower_idx) return *previous_ret; */
+			SET_BPF_JUMP(filter, BPF_JEQ | BPF_K, *lower_idx,
+				     *previous_ret, 0);
+			nb_insns++;
+		} else if (*previous_ret) {
+			/*
+			 * if (A >= *lower_idx && A < bitarray_idx)
+			 *   return *previous_ret;
+			 */
+			SET_BPF_JUMP(filter, BPF_JGE | BPF_K, *lower_idx, 0, 1);
+			SET_BPF_JUMP(filter + 1, BPF_JGE | BPF_K, bitarray_idx,
+				     0, *previous_ret);
+			nb_insns += 2;
+		}
+
+		if (nb_insns)
+			filter = &filter[nb_insns];
+
+		if (!bitarray || bitarray == UINT_MAX) {
+			/* We are starting a new sequence. */
+			*previous_ret = ret;
+			*lower_idx = bitarray_idx;
+			/*
+			 * If last bitarray is starting this sequence, we want
+			 * to generate the instruction now.
+			 */
+			if (end && *previous_ret == ret) {
+				/* if (A == bitarray_idx) return ret; */
+				SET_BPF_JUMP(filter, BPF_JEQ | BPF_K,
+					     bitarray_idx, ret, 0);
+				nb_insns++;
+			}
+			return nb_insns;
+		}
+	}
+
+	*previous_ret = 0;
+
+	/*
+	 * if (A == bitarray_idx)
 	 *   return (X & bitarray) ? RET_TRACE : RET_ALLOW;
 	 */
-	SET_BPF_JUMP(filter, BPF_JMP | BPF_JEQ | BPF_K, bitarray_idx,
+	SET_BPF_JUMP(filter, BPF_JEQ | BPF_K, bitarray_idx,
 		     0, 2);
 	SET_BPF_STMT(filter + 1, BPF_MISC | BPF_TXA, 0);
-	SET_BPF_JUMP(filter + 2, BPF_JMP | BPF_JSET | BPF_K, bitarray,
+	SET_BPF_JUMP(filter + 2, BPF_JSET | BPF_K, bitarray,
 		     JMP_PLACEHOLDER_TRACE, JMP_PLACEHOLDER_ALLOW);
-	return 3;
+	return nb_insns + 3;
 }
 
 static unsigned short
@@ -525,7 +586,9 @@ binary_match_filter_generator(struct sock_filter *filter, bool *overflow)
 		 p >= 0 && pos <= BPF_MAXINSNS;
 		 --p) {
 		unsigned short start = pos, end;
+		unsigned char last_jump = 0;
 		unsigned int bitarray = 0;
+		unsigned int lower_idx = 0;
 		unsigned int i;
 
 #if SUPPORTED_PERSONALITIES > 1
@@ -571,14 +634,18 @@ binary_match_filter_generator(struct sock_filter *filter, bool *overflow)
 			if (traced_by_seccomp(i, p))
 				bitarray |= (1 << i % 32);
 			if (i % 32 == 31) {
+				bool end = i + 1 == nsyscall_vec[p];
 				pos += bpf_syscalls_match(filter + pos,
-							  bitarray, i / 32);
+							  bitarray, i / 32,
+							  &lower_idx,
+							  &last_jump, end);
 				bitarray = 0;
 			}
 		}
 		if (i % 32 != 0)
 			pos += bpf_syscalls_match(filter + pos, bitarray,
-						  i / 32);
+						  i / 32, &lower_idx,
+						  &last_jump, true);
 
 		end = pos;
 
