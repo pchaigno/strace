@@ -329,6 +329,7 @@ MISC_TESTS = \
 	detach-stopped.test \
 	fflush.test \
 	filter_seccomp-perf.test \
+	filter_seccomp-no-inherit.test \
 	filter-unavailable.test \
 	filtering_fd-syntax.test \
 	filtering_syscall-syntax.test \

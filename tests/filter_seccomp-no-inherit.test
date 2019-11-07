@@ -1,0 +1,26 @@
+#!/bin/sh
+#
+# Check seccomp filter with SECCOMP_FILTER_FLAG_NO_INHERIT.
+#
+# Copyright (c) 2019 Paul Chaignon <paul.chaignon@gmail.com>
+# All rights reserved.
+#
+# SPDX-License-Identifier: GPL-2.0-or-later
+
+. "${srcdir=.}/init.sh"
+. "${srcdir=.}/filter_seccomp.sh"
+
+$STRACE --seccomp-bpf -e trace=fchdir / > /dev/null 2> "$LOG" ||:
+if grep -x "[^:]*strace: --seccomp-bpf implies -f" "$LOG" > /dev/null; then
+	skip_ 'SECCOMP_FILTER_FLAG_NO_INHERIT is not supported'
+fi
+
+cat "../filter_seccomp.in" | while read -r t prog_args; do {
+	# skip lines beginning with "#" symbol
+	[ "${t###}" = "$t" ] || continue
+
+	try_run_prog "../$t" || continue
+	run_strace $prog_args --seccomp-bpf "../$t" | grep -E "(\.(start|parent|finish)|exited with 0)" | sed -r 's/^[0-9]+\s+//' > "$EXP"
+	sed -i -r 's/ +/ /g' "$LOG"
+	match_diff "$LOG" "$EXP"
+} < /dev/null; done

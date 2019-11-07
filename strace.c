@@ -1833,10 +1833,8 @@ init(int argc, char *argv[])
 		if (nprocs && (!argc || debug_flag))
 			error_msg("--seccomp-bpf is not enabled for processes"
 				  " attached with -p");
-		if (!followfork) {
-			error_msg("--seccomp-bpf implies -f");
-			followfork = 1;
-		}
+		if (!followfork)
+			seccomp_no_inherit = true;
 	}
 
 	if (optF) {

@@ -22,10 +22,23 @@
 
 bool seccomp_filtering;
 bool seccomp_before_sysentry;
+bool seccomp_no_inherit;
 
 #ifdef HAVE_LINUX_SECCOMP_H
 
 # include <linux/seccomp.h>
+
+#ifndef seccomp
+int seccomp(unsigned int op, unsigned int flags, void *args)
+{
+	errno = 0;
+	return syscall(__NR_seccomp, op, flags, args);
+}
+#endif
+
+#ifndef SECCOMP_FILTER_FLAG_NO_INHERIT
+# define SECCOMP_FILTER_FLAG_NO_INHERIT 16
+#endif
 
 /* PERSONALITY*_AUDIT_ARCH definitions depend on AUDIT_ARCH_* constants.  */
 # ifdef PERSONALITY0_AUDIT_ARCH
@@ -279,6 +292,17 @@ check_seccomp_order(void)
 		}
 	}
 # endif /* HAVE_FORK */
+}
+
+static void
+check_seccomp_inheritance(void)
+{
+	long ret = seccomp(SECCOMP_SET_MODE_FILTER, SECCOMP_FILTER_FLAG_NO_INHERIT, NULL);
+	seccomp_no_inherit = errno == EFAULT && ret == -1;
+	if (!seccomp_no_inherit) {
+		error_msg("--seccomp-bpf implies -f");
+		followfork = 1;
+	}
 }
 
 static bool
@@ -625,8 +649,11 @@ check_seccomp_filter_properties(void)
 		seccomp_filtering = false;
 	}
 
-	if (seccomp_filtering)
+	if (seccomp_filtering) {
 		check_seccomp_order();
+		if (seccomp_no_inherit)
+			check_seccomp_inheritance();
+	}
 }
 
 static void
@@ -712,8 +739,13 @@ init_seccomp_filter(void)
 	if (debug_flag)
 		dump_seccomp_bpf();
 
-	if (prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, &bpf_prog) < 0)
-		perror_func_msg_and_die("prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER)");
+	if (seccomp_no_inherit) {
+		if (seccomp(SECCOMP_SET_MODE_FILTER, SECCOMP_FILTER_FLAG_NO_INHERIT, &bpf_prog) < 0)
+			perror_func_msg_and_die("seccomp(SECCOMP_SET_MODE_FILTER, SECCOMP_FILTER_FLAG_NO_INHERIT)");
+	} else {
+		if (prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER, &bpf_prog) < 0)
+			perror_func_msg_and_die("prctl(PR_SET_SECCOMP, SECCOMP_MODE_FILTER)");
+	}
 }
 
 int

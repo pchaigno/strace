@@ -13,6 +13,7 @@
 
 extern bool seccomp_filtering;
 extern bool seccomp_before_sysentry;
+extern bool seccomp_no_inherit;
 
 extern void check_seccomp_filter(void);
 extern void init_seccomp_filter(void);

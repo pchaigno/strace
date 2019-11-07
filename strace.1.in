@@ -1020,7 +1020,9 @@ to have
 only when system calls that are being traced occur in the traced processes.
 Implies the
 .B \-f
-option.
+option on kernels that do not support the
+.B SECCOMP_FILTER_FLAG_NO_INHERIT
+flag.
 An attempt to rely on seccomp-bpf to filter system calls may fail for various
 reasons, e.g. there are too many system calls to filter, the seccomp API is not
 available, or
